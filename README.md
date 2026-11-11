@@ -95,3 +95,44 @@ mutate GitHub. A follow-up owner-reviewed publisher must run only trusted
 code, avoid executing PR source, enforce same-repository exact SHA and
 revalidate source/catalog semantics before changing managed `build:` and
 `release:` labels. Do not accidentally erase unrelated human labels.
+
+
+## Trusted label admission and reconciliation (source-only preview)
+
+`tools/release/label_admission_v1.py` is an **offline, pure-function,
+no-write proposal** for the next stage, not an active label publisher.
+It is intentionally separate from the unprivileged PR validation job.
+It assumes a future trusted caller has independently fetched:
+
+1. the completed successful `pull_request` workflow run via GitHub's
+   authenticated API, and resolved the allowed workflow ID from reviewed
+   default-branch configuration (not from PR source);
+2. the exact current PR object via GitHub's authenticated API, including
+   head/base SHAs, repository identities, open/non-draft state and bounded
+   body; the workflow-run event must link exactly one matching PR;
+3. the checked-out exact PR HEAD and full Git merge-base diff, and has
+   **recomputed** the Release Impact under the pinned trusted validator,
+   never using an artifact or log from a PR-controlled job as authority;
+4. the complete existing issue/PR labels and repository label definitions.
+
+The admission module rejects failed/forked/unknown/stale runs, multiple or
+missing PR links, mismatched SHA/base/body and unvalidated evidence. It
+computes `add` and `remove` lists **without applying them**. Only reserved
+`build:` and enumerated `release:` labels are managed; all unrelated labels
+are preserved. An existing `release:review-required` is sticky and can be
+cleared only by owner review. Undefined repository labels block publication.
+
+A future writer must request fresh PR and label snapshots **before each
+mutation**, make bounded idempotent GitHub calls via the agreed Fortis
+authorization route, and independently read back the result. GitHub's label
+REST API does not supply an atomic PR-HEAD compare-and-swap operation:
+therefore racing updates, ambiguous writes or missing permissions are
+`STOP` conditions, not automatic retries or release approval.
+
+**Not implemented here:** a GitHub API client, token handling, a
+`workflow_run`/privileged workflow, Gateway label grants, live label writes,
+recovery/reconciliation, GitHub Projects auto-add or any deployment. Do not
+wire this offline module to a write-capable GitHub workflow before a separate
+owner-approved security review, explicit provider access checks, negative
+tests and exact-HEAD pilot. GitHub's current secure-use guidance cautions
+against processing untrusted code and artifacts in privileged event contexts.
