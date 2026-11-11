@@ -68,3 +68,30 @@ it must not be independently maintained as a second current validator.
 This public code is intentionally limited to the generic validator, two
 versioned schemas, minimal dependencies and offline tests. It contains no
 Fortis Gateway credentials, private deployment controllers or owner routes.
+
+
+## Label projection (source candidate; **no automation installed**)
+
+The release CI adapter now also emits `suggestedLabels` from the **same
+semantically validated** PR HEAD, changed file set and catalog. The one
+versioned pure implementation is `tools/release/labels_v1.py`:
+
+- `release:no-deployment` when the entire PR is explicitly classified as
+  safe to accept without a runtime update.
+- `build:<target-id>` for **every declared affected target** in deployment PRs.
+- `release:image-rebuild`, `release:config-deploy`, `release:windows-update`,
+  `release:package-build`, `release:migration-required` as declared.
+- `release:review-required` if an explicitly declared target action is
+  `unknown`. A wholly `unknown` PR fails Release Impact CI instead.
+
+The projection never writes labels and does not imply a release is approved,
+installed or deployed. Its output is an unprivileged, **non-authoritative
+planning hint** until an independently trusted publisher revalidates the
+current PR HEAD and writes labels with restricted permissions.
+
+Do not turn the current `pull_request` job into a privileged job, and never
+treat an artifact or log from a PR-controlled workflow as permission to
+mutate GitHub. A follow-up owner-reviewed publisher must run only trusted
+code, avoid executing PR source, enforce same-repository exact SHA and
+revalidate source/catalog semantics before changing managed `build:` and
+`release:` labels. Do not accidentally erase unrelated human labels.

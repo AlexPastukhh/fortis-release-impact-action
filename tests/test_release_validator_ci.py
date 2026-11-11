@@ -168,6 +168,8 @@ class ReleaseImpactCIAdapterTests(unittest.TestCase):
                         event_name="pull_request", repo_root=self.repo)
         self.assertEqual(result["affectedTargets"], ["api", "worker"])
         self.assertEqual(result["headSha"], self.head)
+        self.assertEqual(result["suggestedLabels"],
+                         ["build:api", "build:worker", "release:image-rebuild"])
 
     @unittest.skipUnless(HAS_DEPS, "PyYAML/jsonschema installed by GitHub CI")
     def test_full_ci_fails_with_omitted_shared_target(self):
