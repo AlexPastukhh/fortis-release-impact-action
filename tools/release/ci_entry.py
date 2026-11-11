@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from labels_v1 import project_labels
+
 from validate import (
     MAX_PR_BODY,
     ValidationError,
@@ -123,7 +125,7 @@ def run(event_file: Path, *, repository: str, event_name: str,
     validate_catalog(catalog, root, repo_name)
     impact = load_data(extract_pr_impact(body), "yaml")
     validate_schema(impact, schema_dir / "release-impact-v1.schema.json")
-    result = validate_impact(impact, catalog, paths)
+    result = project_labels(impact, catalog, paths)
     return {"status": "PASS", "repository": repository, "pullRequest": number,
             "headSha": head_sha, **result}
 
