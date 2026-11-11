@@ -1,0 +1,1 @@
+# fortis-release-impact-action
