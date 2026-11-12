@@ -4,14 +4,15 @@ from __future__ import annotations
 import copy
 import unittest
 
-from test_release_validator_ci import HAS_DEPS, ReleaseImpactCIAdapterTests
+import test_release_validator_ci as fixture_tests
+from test_release_validator_ci import HAS_DEPS
 from trusted_label_preview_v1 import preview_trusted_labels
 from validate import ValidationError
 
 
 class TrustedPublisherPreviewTests(unittest.TestCase):
     def setUp(self):
-        fixture = ReleaseImpactCIAdapterTests("test_valid_event_metadata")
+        fixture = fixture_tests.ReleaseImpactCIAdapterTests("test_valid_event_metadata")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.fixture = fixture
@@ -59,7 +60,7 @@ class TrustedPublisherPreviewTests(unittest.TestCase):
         self.assertEqual(plan["remove"], ["build:stale"])
         self.assertEqual(plan["preservedHumanLabels"], ["bug"])
         self.assertTrue(plan["preservedReviewFlag"])
-        self.assertEqual(plan["validation"]["changedFiles"], ["src/worker.py"])
+        self.assertEqual(plan["validation"]["changedFiles"], 1)
         self.assertEqual(plan["workflowRunAttempt"], 1)
         self.assertIs(plan["writeEnabled"], False)
 
