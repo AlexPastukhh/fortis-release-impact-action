@@ -19,7 +19,7 @@ WORKFLOW_ID = 123456
 
 def run_record():
     return {
-        "id": 789123, "workflow_id": WORKFLOW_ID,
+        "id": 789123, "workflow_id": WORKFLOW_ID, "run_attempt": 1,
         "status": "completed", "conclusion": "success",
         "event": "pull_request", "head_sha": HEAD,
         "repository": {"full_name": REPO},
@@ -51,11 +51,20 @@ class AdmissionTests(unittest.TestCase):
         self.trusted = run_record()
         self.event = {"action": "completed", "workflow_run": copy.deepcopy(self.trusted)}
         self.pr = pull_request()
+        self.inventory = {
+            "run_id": 789123, "run_attempt": 1, "complete": True,
+            "jobs": [
+                {"id": 11, "name": "release-impact",
+                 "status": "completed", "conclusion": "success"},
+            ],
+        }
 
     def admit(self):
         return admit_successful_workflow_run(
             self.event, self.trusted, self.pr,
-            repository=REPO, workflow_id=WORKFLOW_ID)
+            repository=REPO, workflow_id=WORKFLOW_ID,
+            job_inventory=self.inventory,
+            required_job_names=["release-impact"])
 
     def test_valid_admission_records_exact_head_and_pr(self):
         a = self.admit()
@@ -63,6 +72,73 @@ class AdmissionTests(unittest.TestCase):
                           a["baseSha"], a["workflowRun"]),
                          (REPO, 23, HEAD, BASE, 789123))
         self.assertTrue(check_fresh_pr(a, self.pr))
+
+    def test_successful_workflow_with_stuck_job_is_rejected(self):
+        # GitHub once exposed completed/success for a run while its job
+        # remained in_progress. A future publisher must NOT use run alone.
+        for status, conclusion in (
+            ("in_progress", None), ("queued", None),
+            ("completed", "failure"), ("completed", "cancelled"),
+            ("completed", "skipped"),
+        ):
+            with self.subTest(status=status, conclusion=conclusion):
+                job = self.inventory["jobs"][0]
+                job["status"], job["conclusion"] = status, conclusion
+                with self.assertRaisesRegex(ValidationError, "job not completed"):
+                    self.admit()
+
+    def test_incomplete_or_wrong_job_inventory_rejected(self):
+        for field, value, expected in (
+            ("complete", False, "pages incomplete"),
+            ("run_id", 789124, "run ID mismatch"),
+            ("run_attempt", 2, "attempt mismatch"),
+            ("jobs", [], "job count"),
+        ):
+            with self.subTest(field=field):
+                original = self.inventory[field]
+                self.inventory[field] = value
+                try:
+                    with self.assertRaisesRegex(ValidationError, expected):
+                        self.admit()
+                finally:
+                    self.inventory[field] = original
+
+    def test_missing_extra_or_duplicate_jobs_rejected(self):
+        base = copy.deepcopy(self.inventory["jobs"][0])
+        for jobs, required, expected in (
+            ([base], ["release-impact", "source-ci"], "job missing"),
+            ([base, {"id": 12, "name": "other", "status": "completed",
+                      "conclusion": "success"}],
+             ["release-impact"], "unexpected GitHub job"),
+            ([base, copy.deepcopy(base)], ["release-impact"], "duplicate GitHub job"),
+        ):
+            with self.subTest(expected=expected):
+                self.inventory["jobs"] = jobs
+                with self.assertRaisesRegex(ValidationError, expected):
+                    admit_successful_workflow_run(
+                        self.event, self.trusted, self.pr,
+                        repository=REPO, workflow_id=WORKFLOW_ID,
+                        job_inventory=self.inventory, required_job_names=required)
+
+    def test_re_run_attempt_must_match_event_and_inventory(self):
+        self.trusted["run_attempt"] = 2
+        with self.assertRaisesRegex(ValidationError, "attempt mismatch"):
+            self.admit()
+        self.event["workflow_run"]["run_attempt"] = 2
+        with self.assertRaisesRegex(ValidationError, "inventory attempt mismatch"):
+            self.admit()
+        self.inventory["run_attempt"] = 2
+        self.assertEqual(self.admit()["workflowRunAttempt"], 2)
+
+    def test_required_job_names_must_come_from_trusted_config(self):
+        for names in ([], ["release-impact", "release-impact"],
+                      ["other"], [True], ["x" * 129]):
+            with self.subTest(names=names):
+                with self.assertRaises(ValidationError):
+                    admit_successful_workflow_run(
+                        self.event, self.trusted, self.pr,
+                        repository=REPO, workflow_id=WORKFLOW_ID,
+                        job_inventory=self.inventory, required_job_names=names)
 
     def test_failed_or_pending_run_cannot_trigger(self):
         for status, conclusion in [("in_progress", None), ("completed", "failure"),
