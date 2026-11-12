@@ -177,13 +177,43 @@ module never fetches Git objects or executes checkout scripts on its own.
 The caller must pin expected workflow ID/path and job names from reviewed
 configuration, not PR source or an artifact.
 
-**A single Release Impact workflow being green is not enough to authorize
-label writes.** Before any future writer can be enabled it must separately
-enforce all required CI gates (including Source CI, with the latest attempts
-and completed required jobs), re-read fresh GitHub state, handle races/UNKNOWN
-as STOP and pass owner-approved Gateway ASK/receipt policy review. This
-collector has no token handling, arbitrary REST proxy, runtime workflow,
-GitHub write capability or authorization to publish.
+### All-required-CI admission (source-only, read-only)
+
+`tools/release/required_ci_v1.py` now adds a separate **mandatory two-gate
+preflight for the initial fortis-approvals pilot**. It requires the
+`Source CI` and `Fortis Release Impact` workflow identities to be pinned
+by reviewed default-branch configuration: workflow ID, workflow path and
+the exact required job names. The PR, its changed workflow files and
+artifacts must not supply or reduce this list.
+
+The collector reads the **complete bounded run history** through the
+authenticated typed Gateway, selects the highest run number for each
+required workflow on the exact PR HEAD, re-reads each latest attempt and
+all its jobs, and checks same-repository, run ID, workflow identity,
+SHA/branch/base, PR linkage and `completed/success` for **every job**.
+It rechecks PR body/label fingerprints and the latest workflow attempts.
+A newer failed rerun supersedes an older successful attempt; missing,
+queued, incomplete, duplicate or unexpectedly named CI jobs deny admission.
+If the bounded listing is truncated, it stops rather than claiming success.
+
+`collect_all_required_ci(...)` reports only
+`ALL_REQUIRED_CI_ADMITTED_READ_ONLY` with `writeEnabled: false`.
+`preview_with_all_required_ci(...)` then invokes the already trusted
+exact-HEAD source/catalog validator to return a no-write label proposal.
+The caller still has to provide a separate full-history, data-only
+exact-HEAD checkout. No GitHub workflow, API writer or new permission is
+installed by merging this module.
+
+**Real fail-closed case:** fortis-approvals PR #73 had a green Release
+Impact run but Source CI attempt 2 concluded failure, with its
+`audit-projections` job still queued. A previous Source CI success
+must NEVER authorize labels for that PR.
+
+This is a **read-only planning preflight, not authorization to publish**.
+A future writer must separately pass owner-reviewed Gateway ASK/receipt
+admission, independently re-evaluate every required CI gate, use fresh PR
+and labels fingerprints before every bounded write, and STOP on any race,
+timeout, unknown effect or missing provider access.
 
 The next separate security gate is a trusted default-branch caller, explicit
 read-only GitHub permissions and exact-HEAD pilot, followed by an independently
