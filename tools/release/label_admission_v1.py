@@ -66,9 +66,49 @@ def _pr_info(pr, repository: str, expected_number: int):
             "baseSha": base_sha, "body": body}
 
 
+def _check_completed_jobs(inventory: dict, run_id: int, attempt: int,
+                          required_job_names: list[str]) -> None:
+    """Fail closed on the authenticated, fully paginated GitHub job inventory.
+
+    A completed successful workflow is NOT proof all its check runs settled:
+    GitHub can report success while one job is still queued or in_progress.
+    The future trusted caller must collect every job page for the exact
+    run/attempt, not substitute a status check or a PR-controlled artifact.
+    """
+    inventory = _dict(inventory, "trusted job inventory")
+    _check(_int(inventory.get("run_id"), "job inventory run ID") == run_id,
+           "job inventory run ID mismatch")
+    _check(_int(inventory.get("run_attempt"), "job inventory attempt") == attempt,
+           "job inventory attempt mismatch")
+    _check(inventory.get("complete") is True, "job inventory pages incomplete")
+    required = _list(required_job_names, "trusted required job names")
+    _check(0 < len(required) <= 50 and
+           all(type(name) is str and 0 < len(name) <= 128 for name in required) and
+           len(set(required)) == len(required),
+           "invalid trusted required job names")
+    jobs = _list(inventory.get("jobs"), "trusted GitHub jobs")
+    _check(0 < len(jobs) <= 100, "invalid job count")
+    names: set[str] = set()
+    ids: set[int] = set()
+    for entry in jobs:
+        job = _dict(entry, "trusted GitHub job")
+        job_id = _int(job.get("id"), "trusted GitHub job ID")
+        name = job.get("name")
+        _check(type(name) is str and name in required, "unexpected GitHub job name")
+        _check(name not in names and job_id not in ids, "duplicate GitHub job")
+        names.add(name)
+        ids.add(job_id)
+        _check(job.get("status") == "completed" and
+               job.get("conclusion") == "success",
+               "GitHub job not completed successfully")
+    _check(names == set(required), "required GitHub job missing")
+
+
 def admit_successful_workflow_run(event: dict, trusted_run: dict,
                                   current_pr: dict, *,
-                                  repository: str, workflow_id: int) -> dict:
+                                  repository: str, workflow_id: int,
+                                  job_inventory: dict,
+                                  required_job_names: list[str]) -> dict:
     """Verify GitHub webhook AND separately fetched trusted run/PR snapshots.
 
     Workflow IDs MUST be resolved from the trusted default-branch workflow
@@ -99,6 +139,10 @@ def admit_successful_workflow_run(event: dict, trusted_run: dict,
     head_sha = _sha(run.get("head_sha"), "trusted workflow run HEAD")
     _check(_sha(trigger.get("head_sha"), "event workflow HEAD") == head_sha,
            "workflow run HEAD differs between event and API")
+    attempt = _int(run.get("run_attempt"), "trusted workflow run attempt")
+    _check(_int(trigger.get("run_attempt"), "event workflow run attempt") == attempt,
+           "workflow run attempt mismatch")
+    _check_completed_jobs(job_inventory, run_id, attempt, required_job_names)
     links = _list(run.get("pull_requests"), "trusted run PR links")
     event_links = _list(trigger.get("pull_requests"), "event PR links")
     _check(len(links) == len(event_links) == 1,
@@ -116,6 +160,7 @@ def admit_successful_workflow_run(event: dict, trusted_run: dict,
         "baseSha": pr["baseSha"],
         "body": pr["body"],
         "workflowRun": run_id,
+        "workflowRunAttempt": attempt,
     }
 
 

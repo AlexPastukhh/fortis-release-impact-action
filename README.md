@@ -106,14 +106,24 @@ It assumes a future trusted caller has independently fetched:
 
 1. the completed successful `pull_request` workflow run via GitHub's
    authenticated API, and resolved the allowed workflow ID from reviewed
-   default-branch configuration (not from PR source);
-2. the exact current PR object via GitHub's authenticated API, including
+   default-branch configuration (not from PR source); **verify the exact
+   `run_attempt` from both the webhook and a fresh API read**;
+2. **the complete paginated job inventory from the same authenticated run
+   and attempt**, with a trusted list of required job names from reviewed
+   default-branch configuration. Reject any missing, duplicate, queued,
+   running, cancelled, skipped or failed job, even when the overall workflow
+   claims `completed/success`. PR #73 revealed a real workflow/job status
+   discrepancy, so the workflow summary alone is not sufficient admission.
+   The caller must construct `job_inventory = {run_id, run_attempt,
+   complete: true, jobs: [{id, name, status, conclusion}, ...]}` only after
+   fetching every page; `complete` must not be inferred from partial data;
+3. the exact current PR object via GitHub's authenticated API, including
    head/base SHAs, repository identities, open/non-draft state and bounded
    body; the workflow-run event must link exactly one matching PR;
-3. the checked-out exact PR HEAD and full Git merge-base diff, and has
+4. the checked-out exact PR HEAD and full Git merge-base diff, and has
    **recomputed** the Release Impact under the pinned trusted validator,
    never using an artifact or log from a PR-controlled job as authority;
-4. the complete existing issue/PR labels and repository label definitions.
+5. the complete existing issue/PR labels and repository label definitions.
 
 The admission module rejects failed/forked/unknown/stale runs, multiple or
 missing PR links, mismatched SHA/base/body and unvalidated evidence. It
