@@ -139,6 +139,29 @@ REST API does not supply an atomic PR-HEAD compare-and-swap operation:
 therefore racing updates, ambiguous writes or missing permissions are
 `STOP` conditions, not automatic retries or release approval.
 
+### Trusted label preview — source-only integration
+
+`tools/release/trusted_label_preview_v1.py` joins those pure checks into a
+**no-write** preview: independently read PR/run/job records and the *latest*
+run attempt, admit only successful complete jobs, construct a minimal PR event,
+re-run the pinned trusted validator over an exact-HEAD **data-only** checkout
+with complete Git history, then produce minimal add/remove label deltas.
+
+The caller must fetch GitHub records through an authenticated, reviewed
+read-only API client and pin the expected workflow ID and job names from the
+**trusted default branch**. A prior successful attempt is insufficient if a
+newer rerun fails. The checkout must contain data only: do not execute any
+PR scripts, dependencies, workflows, artifacts or uploaded code, especially
+not in a privileged `workflow_run` context. The preview itself has **no
+GitHub auth, no external calls, no secret handling and no mutation**.
+`writeEnabled: false` is an explicit non-authorization marker.
+
+The next separate security gate is a trusted default-branch caller, explicit
+read-only GitHub permissions and exact-HEAD pilot, followed by an independently
+reviewed Gateway-based bounded ASK/receipt writer with fresh PR/label
+fingerprints for **each** operation. Never grant the untrusted PR workflow
+GitHub-write or owner credentials.
+
 **Not implemented here:** a GitHub API client, token handling, a
 `workflow_run`/privileged workflow, Gateway label grants, live label writes,
 recovery/reconciliation, GitHub Projects auto-add or any deployment. Do not
