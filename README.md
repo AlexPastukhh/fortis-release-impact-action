@@ -156,6 +156,35 @@ not in a privileged `workflow_run` context. The preview itself has **no
 GitHub auth, no external calls, no secret handling and no mutation**.
 `writeEnabled: false` is an explicit non-authorization marker.
 
+### Fortis Gateway read-only snapshot collector (source-only)
+
+`tools/release/gateway_snapshot_v1.py` is a **no-write** adapter for an
+injected, already-authenticated **typed Fortis Gateway** GitHub client. It
+collects the latest run attempt from a bounded, fully paginated workflow-run
+inventory (20/page; incomplete inventories STOP), independently reads the
+exact-attempt workflow and complete CI jobs, the open PR's body/provenance
+from `get_pr_release_impact_evidence`, the full label context, PR metadata
+and paginated repository/PR label definitions. Cross-checks bind their
+repository, PR number, run attempt, HEAD/base SHA and body SHA-256. It then
+builds a synthetic event from authenticated records — **not a claim of an
+independently received GitHub webhook**.
+
+`collect_gateway_snapshot(...)` returns data only, with
+`snapshotOnly: true`. `preview_gateway_snapshot(snapshot, repo_root=...)`
+passes these inputs to the previous trusted validator, which requires a
+separate **exact PR HEAD data-only checkout with full Git history**. This
+module never fetches Git objects or executes checkout scripts on its own.
+The caller must pin expected workflow ID/path and job names from reviewed
+configuration, not PR source or an artifact.
+
+**A single Release Impact workflow being green is not enough to authorize
+label writes.** Before any future writer can be enabled it must separately
+enforce all required CI gates (including Source CI, with the latest attempts
+and completed required jobs), re-read fresh GitHub state, handle races/UNKNOWN
+as STOP and pass owner-approved Gateway ASK/receipt policy review. This
+collector has no token handling, arbitrary REST proxy, runtime workflow,
+GitHub write capability or authorization to publish.
+
 The next separate security gate is a trusted default-branch caller, explicit
 read-only GitHub permissions and exact-HEAD pilot, followed by an independently
 reviewed Gateway-based bounded ASK/receipt writer with fresh PR/label
