@@ -209,6 +209,47 @@ Impact run but Source CI attempt 2 concluded failure, with its
 `audit-projections` job still queued. A previous Source CI success
 must NEVER authorize labels for that PR.
 
+### Bounded Gateway owner-ASK intent (source-only, not active)
+
+`tools/release/owner_ask_label_v1.py` defines a **two-stage, inert-by-default**
+boundary: `prepare_owner_label_ask(...)` performs only authenticated Gateway
+READs, recomputes the release plan from **full-history exact-PR-HEAD
+data-only Git objects**, admits both reviewed mandatory CI workflows and
+their latest job attempts, and then reads fresh PR/label fingerprints.
+It builds **one** narrow `add_pr_release_labels` intent (1–5
+explicitly selected calculated labels) or **one**
+`remove_pr_release_label` intent (one selected calculated stale label).
+Arbitrary PR-controlled additions, unknown build labels,
+`release:review-required` removal, unapproved label definitions, stale
+metadata or partial/failed Source CI are rejected. The returned record is
+`PREPARED_OWNER_ASK_ONLY`, never proof of a GitHub write.
+
+`submit_one_owner_label_ask(...)` is an **explicit, optional trusted-caller
+function**: it requires an independently generated **stable canonical UUID
+recorded before the call**, an auditable reason, an explicit operator intent,
+and authenticated live Gateway capabilities confirming policy **ASK**,
+`unknownEffect: STOP`, `automaticPublisher: NOT_ACTIVE` and the
+registered open same-repository task-PR scope. It recomputes everything
+immediately before sending **at most one** existing typed Gateway
+`add_pr_release_labels` or `remove_pr_release_label` request. It
+does not approve the request, execute GitHub REST directly, poll, issue a
+second request, generate a fresh UUID after a failure, or assert success.
+A `PENDING` response means **owner WebAuthn approval is still needed**.
+Any unexpected state or uncertain transport outcome is **STOP**: inspect the
+**original UUID** using Gateway status and durable receipts, never blind
+retry. Even a Gateway `EXECUTED` state requires independent exact PR/labels
+readback before claiming a label has been published.
+
+**This module is not connected to a workflow or agent trigger**, is not
+permitted to create autonomous approvals, and has no built-in credential
+or GitHub API client. Do **not** invoke its submission function from the
+unprivileged `pull_request` CI or a write-capable `workflow_run` without
+a separate reviewed principal, runner isolation, owner-controlled policy,
+durable caller journal and live pilot. The existing provider write path
+still has no atomic PR-SHA CAS: races or unknown effects never authorize
+another operation or a deployment. Source merge by itself changes neither
+the production Gateway nor the active permissions.
+
 This is a **read-only planning preflight, not authorization to publish**.
 A future writer must separately pass owner-reviewed Gateway ASK/receipt
 admission, independently re-evaluate every required CI gate, use fresh PR
