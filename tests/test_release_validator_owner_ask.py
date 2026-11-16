@@ -226,5 +226,107 @@ class OwnerAskTests(unittest.TestCase):
         self.assertEqual(self.client.ask_calls, [])
 
 
+    def native_reply(self, *, current=None, state='PENDING', attempts=None):
+        other = '22222222-2222-4222-8222-222222222222'
+        ids = [self.uuid, other] if attempts is None else attempts
+        return dict(requestId=current or (ids[-1] if ids else None), state=state,
+                    intentId=self.uuid, attemptIds=ids,
+                    lastAttemptId=ids[-1] if ids else None,
+                    nextAction={'kind': 'WAIT_OWNER' if state == 'PENDING' else 'NONE',
+                                'intentId': self.uuid})
+
+    def use_reply(self, value):
+        def add(*args, **kwargs):
+            FakeOwnerAskGateway.add_pr_release_labels(self.client, *args, **kwargs)
+            return copy.deepcopy(value)
+        self.client.add_pr_release_labels = add
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_native_fresh_attempt_preserves_pending_owner_uuid_and_intent(self):
+        reply = self.native_reply()
+        reply['privateDiagnostic'] = 'Bearer PRIVATE'
+        self.use_reply(reply)
+        result = self.submit()
+        self.assertEqual(result['status'], 'PENDING_OWNER_APPROVAL')
+        self.assertEqual(result['requestId'], reply['requestId'])
+        self.assertEqual(result['originalRequestId'], self.uuid)
+        self.assertEqual(result['intentId'], self.uuid)
+        self.assertEqual(result['attemptIds'], reply['attemptIds'])
+        self.assertEqual(result['lastAttemptId'], reply['lastAttemptId'])
+        self.assertEqual(result['coordinatorNextAction']['kind'], 'WAIT_OWNER')
+        self.assertFalse(result['writeConfirmed'])
+        self.assertFalse(result['automaticRetryAllowed'])
+        self.assertEqual(len(self.client.ask_calls), 1)
+        self.assertNotIn('PRIVATE', str(result))
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_native_late_executed_receipt_keeps_its_own_id_and_all_attempts(self):
+        reply = self.native_reply(current=self.uuid, state='EXECUTED')
+        self.use_reply(reply)
+        result = self.submit()
+        self.assertEqual(result['status'], 'STOP_INSPECT_ORIGINAL_REQUEST')
+        self.assertEqual(result['requestId'], self.uuid)
+        self.assertEqual(result['lastAttemptId'], reply['lastAttemptId'])
+        self.assertEqual(result['attemptIds'], reply['attemptIds'])
+        self.assertFalse(result['writeConfirmed'])
+        self.assertEqual(len(self.client.ask_calls), 1)
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_native_goal_without_core_attempt_is_not_a_published_label(self):
+        reply = self.native_reply(state='GOAL_REACHED', attempts=[])
+        self.use_reply(reply)
+        result = self.submit()
+        self.assertEqual(result['status'], 'STOP_INSPECT_ORIGINAL_REQUEST')
+        self.assertIsNone(result['requestId'])
+        self.assertEqual(result['originalRequestId'], self.uuid)
+        self.assertEqual(result['attemptIds'], [])
+        self.assertFalse(result['writeConfirmed'])
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_native_identity_must_bind_original_and_current_attempts(self):
+        other = '22222222-2222-4222-8222-222222222222'
+        cases = [dict(intentId=other), dict(attemptIds=[self.uuid, self.uuid]),
+                 dict(attemptIds=[self.uuid]), dict(lastAttemptId=self.uuid),
+                 dict(attemptIds='not-a-list'), dict(attemptIds=[self.uuid.upper(), other]),
+                 dict(nextAction={'kind': 'WAIT_OWNER', 'intentId': other}),
+                 dict(nextAction={'kind': 'AUTO_APPROVE', 'intentId': self.uuid}),
+                 dict(nextAction={'kind': [], 'intentId': self.uuid})]
+        for patch in cases:
+            with self.subTest(patch=patch):
+                reply = {**self.native_reply(), **patch}
+                self.use_reply(reply)
+                before = len(self.client.ask_calls)
+                with self.assertRaises(ValidationError):
+                    self.submit()
+                self.assertEqual(len(self.client.ask_calls), before + 1)
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_same_request_id_does_not_hide_foreign_native_intent(self):
+        reply = self.native_reply(current=self.uuid, attempts=[self.uuid])
+        reply['intentId'] = '22222222-2222-4222-8222-222222222222'
+        self.use_reply(reply)
+        with self.assertRaises(ValidationError):
+            self.submit()
+        self.assertEqual(len(self.client.ask_calls), 1)
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_legacy_response_still_requires_the_original_uuid(self):
+        self.use_reply(dict(requestId='22222222-2222-4222-8222-222222222222', state='PENDING'))
+        with self.assertRaises(ValidationError):
+            self.submit()
+        self.assertEqual(len(self.client.ask_calls), 1)
+
+    @unittest.skipUnless(HAS_DEPS, 'CI installs YAML/jsonschema')
+    def test_lost_ack_is_one_typed_call_without_blind_retry(self):
+        def lost(*args, **kwargs):
+            FakeOwnerAskGateway.add_pr_release_labels(self.client, *args, **kwargs)
+            raise TimeoutError('ACK lost after native submit')
+        self.client.add_pr_release_labels = lost
+        with self.assertRaises(TimeoutError):
+            self.submit()
+        self.assertEqual(len(self.client.ask_calls), 1)
+        self.assertEqual(self.client.ask_calls[0][8], self.uuid)
+
+
 if __name__ == "__main__":
     unittest.main()
