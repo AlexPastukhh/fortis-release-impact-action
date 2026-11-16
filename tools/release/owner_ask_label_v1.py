@@ -150,22 +150,50 @@ def _expect_ask_policy(github) -> None:
            "Gateway owner-ASK policy or scope not verified")
 
 
+
+def _canonical_uuid(value) -> bool:
+    try:
+        return type(value) is str and str(uuid.UUID(value)) == value
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _native_identity(reply: dict, original_id: str) -> dict:
+    """Keep the existing coordinator's IDs, never manufacture or retry one."""
+    message = 'Gateway native intent identity unknown: STOP, inspect original intent'
+    _check(reply.get('intentId') == original_id, message)
+    ids = reply.get('attemptIds')
+    _check(type(ids) is list and len(ids) <= 1024 and
+           all(_canonical_uuid(value) for value in ids) and
+           len(set(ids)) == len(ids), message)
+    active = reply.get('requestId')
+    last = reply.get('lastAttemptId')
+    if ids:
+        _check(ids[0] == original_id and last == ids[-1] and active in ids, message)
+    else:
+        _check(active is None and last is None and reply.get('state') != 'PENDING', message)
+    next_action = _dict(reply.get('nextAction'), message)
+    _check(next_action.get('intentId') == original_id and
+           type(next_action.get('kind')) is str and
+           next_action.get('kind') in {'NONE', 'FIX_PRECONDITION', 'RETRY_INTENT',
+               'WAIT_BACKOFF', 'RETRY_READ', 'WAIT_OWNER', 'WAIT_EXISTING_REQUEST'}, message)
+    return dict(requestId=active, originalRequestId=original_id, intentId=original_id,
+                attemptIds=list(ids), lastAttemptId=last,
+                coordinatorNextAction={'kind': next_action['kind'], 'intentId': original_id})
+
+
 def submit_one_owner_label_ask(github, *, request_id: str, reason: str,
                                operator_confirmed: bool = False,
                                **prepare_kwargs) -> dict:
-    """Explicit ONE non-retryable Gateway owner request, never auto-approved.
+    """One typed owner call; preserve the accepted native intent continuation.
 
-    A supplied UUID must be recorded by the owner caller BEFORE invoking.
-    Network errors or unknown states require checking the ORIGINAL request
-    and receipts, not calling this method again with a fresh identifier.
+    Record the supplied original UUID BEFORE invoking. The existing Repo
+    coordinator owns any safely authorized attempts and its durable journal.
+    Unknown outcomes require original intent/attempt readback, never blind retry.
     """
     _check(operator_confirmed is True,
            "explicit operator confirmation required before ASK submission")
-    try:
-        canonical_id = str(uuid.UUID(request_id))
-    except (ValueError, TypeError, AttributeError):
-        canonical_id = None
-    _check(type(request_id) is str and canonical_id == request_id,
+    _check(_canonical_uuid(request_id),
            "stable canonical owner request UUID required")
     _check(type(reason) is str and 10 <= len(reason.strip()) <= 500,
            "auditable owner ASK reason required")
@@ -185,13 +213,19 @@ def submit_one_owner_label_ask(github, *, request_id: str, reason: str,
             params["expectedBaseSha"], params["expectedBodySha256"],
             params["expectedLabelsSha256"], params["name"],
             request_id=request_id, reason=reason)
-    _check(type(reply) is dict and reply.get("requestId") == request_id,
+    _check(type(reply) is dict,
            "Gateway ASK response unknown: STOP, inspect original request ID")
+    if "intentId" in reply:
+        identity = _native_identity(reply, request_id)
+    else:
+        _check(reply.get("requestId") == request_id,
+               "Gateway ASK response unknown: STOP, inspect original request ID")
+        identity = {"requestId": request_id}
     state = reply.get("state")
     # No confirmation of a GitHub write here. Owner approval, execution,
     # receipt, and exact-label readback are independent operator actions.
     return {
-        "requestId": request_id,
+        **identity,
         "status": ("PENDING_OWNER_APPROVAL" if state == "PENDING"
                    else "STOP_INSPECT_ORIGINAL_REQUEST"),
         "gatewayState": state, "ownerApprovalRequired": True,

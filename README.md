@@ -225,20 +225,33 @@ metadata or partial/failed Source CI are rejected. The returned record is
 `PREPARED_OWNER_ASK_ONLY`, never proof of a GitHub write.
 
 `submit_one_owner_label_ask(...)` is an **explicit, optional trusted-caller
-function**: it requires an independently generated **stable canonical UUID
+function**: it requires an independently generated **canonical original UUID
 recorded before the call**, an auditable reason, an explicit operator intent,
 and authenticated live Gateway capabilities confirming policy **ASK**,
 `unknownEffect: STOP`, `automaticPublisher: NOT_ACTIVE` and the
 registered open same-repository task-PR scope. It recomputes everything
-immediately before sending **at most one** existing typed Gateway
-`add_pr_release_labels` or `remove_pr_release_label` request. It
-does not approve the request, execute GitHub REST directly, poll, issue a
-second request, generate a fresh UUID after a failure, or assert success.
-A `PENDING` response means **owner WebAuthn approval is still needed**.
-Any unexpected state or uncertain transport outcome is **STOP**: inspect the
-**original UUID** using Gateway status and durable receipts, never blind
-retry. Even a Gateway `EXECUTED` state requires independent exact PR/labels
-readback before claiming a label has been published.
+immediately before **one typed call** to `add_pr_release_labels` or
+`remove_pr_release_label`.
+
+The accepted [Repo intent coordinator](https://github.com/AlexPastukhh/fortis-approvals/blob/main/docs/NATIVE-WORKTREE-GATEWAY-2026-11-06.md#automatic-read-retries-and-intent-continuation-repo-source)
+owns the existing durable journal and any safely authorized continuation.
+The caller keeps its original UUID as `intentId`; each actual Gateway attempt
+has an immutable request UUID. A native response now preserves
+`originalRequestId`, `intentId`, all `attemptIds`, `lastAttemptId`, the actual
+`requestId`, and a bounded `coordinatorNextAction`. A later receipt may belong
+to an earlier attempt; a goal reached before any submission may have no
+`requestId`. A legacy response without native metadata must still match the
+original UUID exactly.
+
+The helper never approves, polls, directly invokes GitHub REST, creates a
+second journal or itself resubmits. A `PENDING_OWNER_APPROVAL` response names
+the **actual `requestId` to inspect in Owner Portal**, where owner WebAuthn is
+still required. Unknown identity/transport outcomes are STOP: inspect the
+original intent and its complete attempt history through Gateway status and
+durable receipts. Never replay an old UUID or blindly retry; safe continuation
+still requires the accepted fresh-read/precondition and authorization checks.
+`writeConfirmed` and `automaticRetryAllowed` remain false, including after
+`EXECUTED`: independent exact PR/label readback is required to confirm labels.
 
 **This module is not connected to a workflow or agent trigger**, is not
 permitted to create autonomous approvals, and has no built-in credential
@@ -264,7 +277,7 @@ GitHub-write or owner credentials.
 
 **Not implemented here:** a GitHub API client, token handling, a
 `workflow_run`/privileged workflow, Gateway label grants, live label writes,
-recovery/reconciliation, GitHub Projects auto-add or any deployment. Do not
+a separate recovery coordinator, GitHub Projects auto-add or any deployment. Do not
 wire this offline module to a write-capable GitHub workflow before a separate
 owner-approved security review, explicit provider access checks, negative
 tests and exact-HEAD pilot. GitHub's current secure-use guidance cautions
