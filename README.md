@@ -12,6 +12,13 @@ version-1 JSON schemas are immutable execution snapshots of that contract, not
 a separate policy authority. Change them only in a separately reviewed,
 test-covered release process; do not independently fork the business rules.
 
+**Responsibility boundary (2026-11-19):** this public action remains
+**read-only**. A separate, owner-invoked [Fortis Gateway Publisher](https://github.com/AlexPastukhh/fortis-approvals/blob/main/docs/guides/FORTIS-APPROVALS-SECURE-DEVELOPMENT.md)
+completed one live ASK/WebAuthn/receipt E2E on PR #118. It is **not**
+a privileged workflow or unattended writer in this repository. Future
+CD Queue/Release Board stages are governed by the
+[single Fortis roadmap](https://github.com/AlexPastukhh/fortis-container/blob/main/docs/BACKLOG-IMPROVEMENTS.md#fortis-release-planning--cd-queue).
+
 ## Caller workflow
 
 Use an **immutable reviewed commit SHA** of this action, not `@main`, in each
