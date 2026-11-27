@@ -20,6 +20,7 @@ MAX_PR_BODY = 20_000
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 ID = re.compile(r"[a-z][a-z0-9-]{0,99}\Z")
 REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
+OPERATION = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 START = "<!-- fortis-release-impact:start -->"
 END = "<!-- fortis-release-impact:end -->"
 
@@ -102,12 +103,65 @@ def _unique(items: list[dict], field: str, where: str):
     return ids
 
 
+def catalog_schema_path(data: dict, schema_dir: Path):
+    """Select only a known immutable catalog schema; never caller paths."""
+    data = _dict(data, "catalog")
+    version = data.get("schemaVersion")
+    _check(type(version) is int and version in (1, 2),
+           "catalog: unsupported schemaVersion")
+    return schema_dir / ("build-target-catalog-v%d.schema.json" % version)
+
+
+def maintenance_profile(data: dict, target: dict):
+    """Validate declaration, not actual runtime grants or holds.
+
+    Legacy v1 has no maintenance classification (None), not an implicit
+    unrestricted profile. Consumers must resolve the reviewed binding.
+    """
+    version = _dict(data, "catalog").get("schemaVersion")
+    _check(type(version) is int and version in (1, 2),
+           "catalog: unsupported schemaVersion")
+    target = _dict(target, "target")
+    if version == 1:
+        _check("maintenance" not in target, "catalog v1: maintenance requires v2")
+        return None
+    profile = _dict(target.get("maintenance"), "maintenance")
+    _check(set(profile) == {"beginRequired", "stateFreeze", "blockedOperations", "notes"},
+           "maintenance: closed fields required")
+    begin, freeze = profile["beginRequired"], profile["stateFreeze"]
+    _check(type(begin) is bool and type(freeze) is bool,
+           "maintenance: flags must be booleans")
+    blocked = _list(profile["blockedOperations"], "maintenance.blockedOperations")
+    _check(len(blocked) <= 100, "maintenance: too many operation selectors")
+    keys = []
+    for selector in blocked:
+        selector = _dict(selector, "maintenance.blockedOperations")
+        _check(set(selector) == {"service", "operation"},
+               "maintenance: exact service/operation selector required")
+        keys.append((_name(selector["service"], OPERATION, "maintenance.service"),
+                     _name(selector["operation"], OPERATION, "maintenance.operation")))
+    _check(len(keys) == len(set(keys)), "maintenance: duplicate operation selector")
+    notes = _list(profile["notes"], "maintenance.notes")
+    _check(len(notes) <= 20 and all(type(note) is str and 0 < len(note) <= 500
+           and bool(note.strip()) and not any(ord(c) < 32 or ord(c) == 127 for c in note)
+           for note in notes), "maintenance: invalid advisory notes")
+    _check(len(notes) == len(set(notes)), "maintenance: duplicate advisory note")
+    _check(begin or not (freeze or blocked), "maintenance: enforceable restrictions require begin")
+    _check(not (target.get("deployment", {}).get("kind") == "none"
+                and (begin or freeze or blocked)),
+           "maintenance: non-deployable target cannot require a release hold")
+    return {"beginRequired": begin, "stateFreeze": freeze,
+            "blockedOperations": [dict(service=svc, operation=op) for svc, op in keys],
+            "notes": list(notes)}
+
+
 def validate_catalog(data: dict, root: Path, repository: str):
     """Validate catalog semantic invariants beyond the JSON schema."""
     root = root.resolve(strict=True)
     _name(repository, REPO, "repository")
     data = _dict(data, "catalog")
-    _check(data.get("schemaVersion") == 1, "catalog: unsupported schemaVersion")
+    _check(type(data.get("schemaVersion")) is int and data["schemaVersion"] in (1, 2),
+           "catalog: unsupported schemaVersion")
     _check(data.get("repository") == repository, "catalog: repository does not match")
     units = _list(data.get("buildUnits"), "buildUnits")
     targets = _list(data.get("targets"), "targets")
@@ -146,6 +200,7 @@ def validate_catalog(data: dict, root: Path, repository: str):
             _name(env, ID, where + ".environment")
         _check(bool(_list(target.get("verification"), where + ".verification")),
                where + ": verification is mandatory")
+        maintenance_profile(data, target)
         for dep in target.get("dependsOn", []):
             dep = _dict(dep, where + ".dependsOn")
             _name(dep.get("repository"), REPO, where + ".dependsOn.repository")
@@ -333,7 +388,7 @@ def main(argv=None):
         schema_dir = here / "docs" / "schemas"
         catalog_text = _read(root / _path(args.catalog, "catalog"))
         catalog = load_data(catalog_text, args.input_format)
-        validate_schema(catalog, schema_dir / "build-target-catalog-v1.schema.json")
+        validate_schema(catalog, catalog_schema_path(catalog, schema_dir))
         info = validate_catalog(catalog, root, args.repository)
         if args.mode == "impact":
             _check(args.pr_body is not None and args.changed_files_json is not None and

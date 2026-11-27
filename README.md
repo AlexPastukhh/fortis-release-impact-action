@@ -8,8 +8,8 @@ modify PRs, labels, GitHub Projects, environments or repository content.
 This repository publishes the reusable **validator implementation**. The
 normative [Fortis release planning contract](https://github.com/AlexPastukhh/fortis-container/blob/main/docs/RELEASE-PLANNING-CONTRACT.md)
 and cross-repository Use Cases remain with `fortis-container`. The included
-version-1 JSON schemas are immutable execution snapshots of that contract, not
-a separate policy authority. Change them only in a separately reviewed,
+versioned JSON schemas are execution snapshots of that contract, not
+a separate policy authority. The historical v1 snapshots remain immutable. Change them only in a separately reviewed,
 test-covered release process; do not independently fork the business rules.
 
 **Responsibility boundary (2026-11-19):** this public action remains
@@ -72,7 +72,7 @@ was initially separated from the reviewed `fortis-container` action at
 the legacy private action is a pinned historical compatibility version;
 it must not be independently maintained as a second current validator.
 
-This public code is intentionally limited to the generic validator, two
+This public code is intentionally limited to the generic validator,
 versioned schemas, minimal dependencies and offline tests. It contains no
 Fortis Gateway credentials, private deployment controllers or owner routes.
 
@@ -289,3 +289,21 @@ wire this offline module to a write-capable GitHub workflow before a separate
 owner-approved security review, explicit provider access checks, negative
 tests and exact-HEAD pilot. GitHub's current secure-use guidance cautions
 against processing untrusted code and artifacts in privileged event contexts.
+
+## Maintenance-aware catalog v2
+
+The shared validator, catalog v2 schema and maintenance tests match the
+[accepted Fortis Container source at `be334101`](https://github.com/AlexPastukhh/fortis-container/tree/be334101fd3f6d1abf79bae23eccdf3c2fb85812).
+The public action also projects suggested labels. v1 catalogs
+and v1 Release Impact remain supported without changing the historical
+schema files. v2 requires an explicit maintenance declaration for every
+target; validation neither grants an operation nor installs a hold. A v1
+catalog has unknown maintenance classification, not an implicit unrestricted
+profile. The public CI adapter still validates exact PR HEAD and real Git
+diff and projects existing suggested labels. It does not interpret notes as
+commands, change policies or deploy anything.
+
+The validator CI covers v2 declarations, legacy catalogs and label
+projection using pinned PyYAML and jsonschema dependencies. Consumer
+repositories adopt this version through their reviewed immutable action
+pins.

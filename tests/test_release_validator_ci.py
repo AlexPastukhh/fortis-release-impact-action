@@ -172,6 +172,27 @@ class ReleaseImpactCIAdapterTests(unittest.TestCase):
                          ["build:api", "build:worker", "release:image-rebuild"])
 
     @unittest.skipUnless(HAS_DEPS, "PyYAML/jsonschema installed by GitHub CI")
+    def test_full_ci_catalog_v2_uses_exact_head_and_impact_v1(self):
+        import yaml
+        path = self.repo / "release/targets.yaml"
+        catalog = yaml.safe_load(path.read_text())
+        catalog["schemaVersion"] = 2
+        for target in catalog["targets"]:
+            target["maintenance"] = dict(beginRequired=True, stateFreeze=False,
+                                         blockedOperations=[], notes=["Review maintenance"])
+        path.write_text(yaml.safe_dump(catalog))
+        self.git("add", "release/targets.yaml")
+        self.git("commit", "-qm", "explicit catalog maintenance")
+        self.head = self.git("rev-parse", "HEAD")
+        self.event["pull_request"]["head"]["sha"] = self.head
+        self.write_event()
+        result = ci.run(self.event_file, repository="owner/test-project",
+                        event_name="pull_request", repo_root=self.repo)
+        self.assertEqual(result["headSha"], self.head)
+        self.assertEqual(result["affectedTargets"], ["api", "worker"])
+        self.assertEqual(result["suggestedLabels"], ["build:api", "build:worker", "release:image-rebuild"])
+
+    @unittest.skipUnless(HAS_DEPS, "PyYAML/jsonschema installed by GitHub CI")
     def test_full_ci_fails_with_omitted_shared_target(self):
         self.event["pull_request"]["body"] = self.body.replace(
             "    - id: worker\n      actions: [image-rebuild]\n", ""
