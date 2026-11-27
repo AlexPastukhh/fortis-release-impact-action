@@ -26,6 +26,7 @@ from validate import (
     END,
     extract_pr_impact,
     load_data,
+    catalog_schema_path,
     validate_catalog,
     validate_impact,
     validate_schema,
@@ -121,7 +122,7 @@ def run(event_file: Path, *, repository: str, event_name: str,
            "release/targets.yaml missing, symlink or oversized")
     catalog = load_data(catalog_path.read_text(encoding="utf-8"), "yaml")
     schema_dir = Path(__file__).resolve().parents[2] / "docs/schemas"
-    validate_schema(catalog, schema_dir / "build-target-catalog-v1.schema.json")
+    validate_schema(catalog, catalog_schema_path(catalog, schema_dir))
     validate_catalog(catalog, root, repo_name)
     impact = load_data(extract_pr_impact(body), "yaml")
     validate_schema(impact, schema_dir / "release-impact-v1.schema.json")
