@@ -290,10 +290,11 @@ owner-approved security review, explicit provider access checks, negative
 tests and exact-HEAD pilot. GitHub's current secure-use guidance cautions
 against processing untrusted code and artifacts in privileged event contexts.
 
-## Maintenance-aware catalog v2 (source candidate, 2026-11-27)
+## Maintenance-aware catalog v2
 
-The shared validator and catalog v2 schema are exact local source snapshots
-of the successor work in the canonical Container contract. v1 catalogs
+The shared validator, catalog v2 schema and maintenance tests match the
+[accepted Fortis Container source at `be334101`](https://github.com/AlexPastukhh/fortis-container/tree/be334101fd3f6d1abf79bae23eccdf3c2fb85812).
+The public action also projects suggested labels. v1 catalogs
 and v1 Release Impact remain supported without changing the historical
 schema files. v2 requires an explicit maintenance declaration for every
 target; validation neither grants an operation nor installs a hold. A v1
@@ -302,10 +303,7 @@ profile. The public CI adapter still validates exact PR HEAD and real Git
 diff and projects existing suggested labels. It does not interpret notes as
 commands, change policies or deploy anything.
 
-Local validator suites: 136 PASS, including v2 and legacy CI/label tests,
-using existing pinned PyYAML/jsonschema dependencies. The common validator,
-v2 schema and maintenance test file match the Container worktree byte for
-byte. This source checkpoint is not publication of a new immutable action
-pin or owner approval. Publish only after the canonical contract and
-transition gates are satisfied; callers keep their reviewed old pins until
-separately approved adoption.
+The validator CI covers v2 declarations, legacy catalogs and label
+projection using pinned PyYAML and jsonschema dependencies. Consumer
+repositories adopt this version through their reviewed immutable action
+pins.
